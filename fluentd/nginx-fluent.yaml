@@ -1,0 +1,84 @@
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: nginx
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+  labels:
+    app: nginx
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /*
+            backend:
+              serviceName: nginx
+              servicePort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        # fluentdコンテナと共有するためのボリューム
+        - name: log-volume
+          mountPath: /var/log/nginx
+      - name: fluentd
+        # プラグインをインストールした独自イメージをプライベートレジストリから取得
+        image: 260859027812.dkr.ecr.ap-northeast-1.amazonaws.com/fluentd:011802
+        volumeMounts:
+        # Nginxコンテナと共有するためのボリューム
+        - name: log-volume
+          mountPath: /var/log/nginx
+        # fluentdのconfgiをconfigmapでマウント
+        - name: fluentd-config-volume
+          mountPath: /fluentd/etc/
+        # AWSのAPI Keyなどを環境変数でセット
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          value: AKIAIJW5U7FLVSWZ5JJA
+        - name: AWS_SECRET_ACCESS_KEY
+          value: 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
+        - name: AWS_REGION
+          value: ap-northeast-1
+      volumes:
+      - name: fluentd-config-volume
+        configMap:
+          name: fluentd-conf
+          items:
+          - key: fluent.conf
+            path: fluent.conf
+      # コンテナ間でシェアするボリューム
+      - name: log-volume
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+  type: ClusterIP
+  selector:
+    app: nginx
